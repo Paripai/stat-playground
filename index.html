@@ -395,7 +395,7 @@
   <div class="slide-inner">
     <div class="slide-brand"><img src="__LOGO_STAT__" alt="" onerror="this.remove()"><span>ภาควิชาสถิติ · คณะวิทยาศาสตร์ มช.</span></div>
     <div class="st-head"><span class="st-num">05</span><h2>Wisdom of Crowds</h2><span class="live-badge"><span class="live-dot" id="wocDot"></span>ข้อมูลสด</span></div>
-    <p class="st-sub">ในขวดที่วางอยู่นี้ <b>มีอะไรอยู่กี่ชิ้น?</b> กะด้วยสายตา แล้วพิมพ์ตัวเลขแรกที่นึกออก ไม่ต้องคิดนาน ทุกคนที่ตอบจะถูกเอาไปรวมกันเป็นคำตอบของ "ฝูงชน"</p>
+    <p class="st-sub">ในขวดที่วางอยู่นี้ <b>มีของอยู่กี่ชิ้น?</b> กะด้วยสายตา แล้วพิมพ์ตัวเลขแรกที่นึกออก ไม่ต้องคิดนาน ทุกคนที่ตอบจะถูกเอาไปรวมกันเป็นคำตอบของ "ฝูงชน"</p>
 
     <div class="card" id="wocFormCard">
       <form class="woc-form" id="wocForm">
@@ -404,7 +404,7 @@
           <input type="number" id="wocGuess" inputmode="numeric" min="0" step="1" placeholder="เช่น 240" required>
         </div>
         <div class="woc-field">
-          <label for="wocName">ชื่อเล่น (ไม่ใส่ก็ได้)</label>
+          <label for="wocName">ชื่อเล่น</label>
           <input type="text" id="wocName" maxlength="24" placeholder="ไม่บังคับ">
         </div>
         <button class="btn" type="submit" id="wocSubmitBtn">ส่งคำตอบ</button>
@@ -423,14 +423,16 @@
         <h3 style="font-family:'Kanit',sans-serif;font-size:1.15rem;margin:0">ผลรวมจากทุกคน</h3>
         <div class="toggle-row">
           <button class="btn ghost" id="wocRefresh" type="button" style="padding:8px 14px;font-size:13px">รีเฟรชผล</button>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="wocAuto" checked> ออโต้รีเฟรช</label>
+          <button class="btn ghost hidden" id="wocToggleView" type="button" style="padding:8px 14px;font-size:13px">ซ่อนผล</button>
         </div>
       </div>
-      <div class="canvas-box" style="max-width:640px;margin:14px auto 0"><canvas id="wocHist"></canvas></div>
-      <div class="readout">
-        <div class="stat"><div class="lab">คนตอบแล้ว</div><div class="val" id="wocN">0<small> คน</small></div></div>
-        <div class="stat"><div class="lab">ค่าเฉลี่ยกลุ่ม</div><div class="val" id="wocMean">—</div></div>
-        <div class="stat"><div class="lab">มัธยฐาน</div><div class="val" id="wocMedian">—</div></div>
+      <div id="wocResultsViz">
+        <div class="canvas-box" style="max-width:640px;margin:14px auto 0"><canvas id="wocHist"></canvas></div>
+        <div class="readout">
+          <div class="stat"><div class="lab">คนตอบแล้ว</div><div class="val" id="wocN">0<small> คน</small></div></div>
+          <div class="stat"><div class="lab">ค่าเฉลี่ยกลุ่ม</div><div class="val" id="wocMean">—</div></div>
+          <div class="stat"><div class="lab">มัธยฐาน</div><div class="val" id="wocMedian">—</div></div>
+        </div>
       </div>
 
       <details class="admin-box hidden" id="wocAdminBox">
@@ -683,11 +685,12 @@ function setupCanvas(cv, cssH){
 
   const form=document.getElementById("wocForm"), guessI=document.getElementById("wocGuess"), nameI=document.getElementById("wocName");
   const submitBtn=document.getElementById("wocSubmitBtn"), msg=document.getElementById("wocMsg"), dot=document.getElementById("wocDot");
-  const refreshBtn=document.getElementById("wocRefresh"), autoChk=document.getElementById("wocAuto");
+  const refreshBtn=document.getElementById("wocRefresh");
   const cv=document.getElementById("wocHist");
   const trueI=document.getElementById("wocTrue"), revealBtn=document.getElementById("wocReveal"), compareBox=document.getElementById("wocCompare");
   const lockedMsg=document.getElementById("wocLockedMsg"), resultsCard=document.getElementById("wocResultsCard"), adminBox=document.getElementById("wocAdminBox");
-  let ctx,W,H, guesses=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, configured = WOC_API_URL.indexOf("http")===0;
+  const resultsViz=document.getElementById("wocResultsViz"), toggleViewBtn=document.getElementById("wocToggleView");
+  let ctx,W,H, guesses=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, trueValue=null, vizHidden=false, configured = WOC_API_URL.indexOf("http")===0;
 
   function safeGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function safeSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
@@ -704,24 +707,15 @@ function setupCanvas(cv, cssH){
     fetchResults();
   }
 
-  function tickCooldown(){
-    const left = unlockAt - Date.now();
-    if(left<=0){
-      if(cooldownTimer){ clearInterval(cooldownTimer); cooldownTimer=null; }
-      guessI.disabled=false; nameI.disabled=false; submitBtn.disabled=false;
-      msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้งแล้ว ✅";
-      return;
-    }
-    const mm=Math.floor(left/60000), ss=Math.floor((left%60000)/1000);
-    msg.className="woc-msg ok";
-    msg.textContent="ส่งคำตอบแล้ว ✅ รออีก "+mm+":"+String(ss).padStart(2,"0")+" ถึงจะตอบใหม่ได้ (ดูผลรวมด้านล่างได้เลย)";
-  }
   function startCooldown(untilTs){
     unlockAt=untilTs;
     guessI.disabled=true; nameI.disabled=true; submitBtn.disabled=true;
-    if(cooldownTimer) clearInterval(cooldownTimer);
-    cooldownTimer=setInterval(tickCooldown,1000);
-    tickCooldown();
+    if(cooldownTimer) clearTimeout(cooldownTimer);
+    const remain=Math.max(0, untilTs-Date.now());
+    cooldownTimer=setTimeout(()=>{
+      guessI.disabled=false; nameI.disabled=false; submitBtn.disabled=false;
+      msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้งแล้ว ✅";
+    }, remain);
   }
 
   if(!configured){
@@ -729,29 +723,36 @@ function setupCanvas(cv, cssH){
     msg.textContent="ยังไม่ได้ผูกกับ Google Sheets — ใส่ลิงก์ Web App ในโค้ด (ค้นหา WOC_API_URL) ก่อนใช้งานจริง";
     submitBtn.disabled=true;
   } else if(isAdminView){
-    /* โหมดอาจารย์: เดาได้ไม่จำกัด ไม่มีล็อก + เห็นกล่องเฉลยคำตอบจริง */
+    /* โหมดอาจารย์: เดาได้ไม่จำกัด ไม่มีล็อก + เห็นกล่องเฉลยคำตอบจริง + ปุ่มซ่อน/แสดงผล */
     adminBox.classList.remove("hidden");
+    toggleViewBtn.classList.remove("hidden");
     unlockResults();
   } else {
     const lastTs = Number(safeGet("wocSubmittedAt"));
     if(Number.isFinite(lastTs) && lastTs>0){
       unlockResults();
       const until = lastTs + COOLDOWN_MS;
-      if(Date.now() < until){ startCooldown(until); }
-      else { msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้ง หรือดูผลรวมด้านล่างได้เลย"; }
+      if(Date.now() < until) startCooldown(until);
     }
   }
+
+  toggleViewBtn.addEventListener("click", ()=>{
+    vizHidden=!vizHidden;
+    resultsViz.classList.toggle("hidden", vizHidden);
+    toggleViewBtn.textContent = vizHidden ? "แสดงผล" : "ซ่อนผล";
+  });
 
   function layout(){ if(!cv)return; const d=setupCanvas(cv, Math.min(380, Math.max(220, cv.clientWidth*0.55))); ctx=d.ctx; W=d.w; H=d.h; }
   function draw(){
     if(!ctx) return;
     ctx.clearRect(0,0,W,H);
     if(guesses.length===0){
-      ctx.fillStyle="var(--faint)"; ctx.font="14px 'IBM Plex Sans Thai'"; ctx.textAlign="center";
-      ctx.fillStyle="#5f6d95"; ctx.fillText("ยังไม่มีใครตอบ — เป็นคนแรกได้เลย", W/2, H/2);
+      ctx.fillStyle="#5f6d95"; ctx.font="14px 'IBM Plex Sans Thai'"; ctx.textAlign="center";
+      ctx.fillText("ยังไม่มีใครตอบ — เป็นคนแรกได้เลย", W/2, H/2);
       return;
     }
-    const min=Math.min(...guesses), max=Math.max(...guesses);
+    let min=Math.min(...guesses), max=Math.max(...guesses);
+    if(trueValue!=null){ min=Math.min(min,trueValue); max=Math.max(max,trueValue); }
     const bins = Math.max(6, Math.min(16, Math.ceil(Math.sqrt(guesses.length))*2));
     const span = Math.max(1, max-min);
     const counts=new Array(bins).fill(0);
@@ -766,6 +767,28 @@ function setupCanvas(cv, cssH){
     ctx.fillStyle="#8fa0c9"; ctx.font="11px 'IBM Plex Mono'"; ctx.textAlign="left";
     ctx.fillText(Math.round(min), 2, H-6);
     ctx.textAlign="right"; ctx.fillText(Math.round(max), W-2, H-6);
+
+    /* เส้นอ้างอิง: ค่าเฉลี่ย / มัธยฐาน / ค่าจริง (ถ้ามี) ให้เห็นความคลาดเคลื่อนชัด ๆ บนกราฟ */
+    const n=guesses.length;
+    const meanV=guesses.reduce((a,b)=>a+b,0)/n;
+    const sorted=[...guesses].sort((a,b)=>a-b);
+    const medianV = n%2===1 ? sorted[(n-1)/2] : (sorted[n/2-1]+sorted[n/2])/2;
+    function xFor(v){ return Math.max(2,Math.min(W-2, ((v-min)/span)*W)); }
+    function marker(v,color,label,labelY,dashed){
+      const x=xFor(v);
+      ctx.save();
+      ctx.strokeStyle=color; ctx.lineWidth=dashed?1.6:2.2;
+      if(dashed) ctx.setLineDash([5,4]);
+      ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,H-24); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle=color; ctx.font="600 11px 'IBM Plex Mono'";
+      ctx.textAlign = x>W-46 ? "right" : (x<46 ? "left" : "center");
+      ctx.fillText(label, x, labelY);
+      ctx.restore();
+    }
+    marker(meanV, "#f2c14e", "เฉลี่ย "+meanV.toFixed(1), 22, true);
+    marker(medianV, "#4ea6f2", "มัธยฐาน "+medianV.toFixed(1), 36, true);
+    if(trueValue!=null) marker(trueValue, "#eef1fb", "ค่าจริง "+trueValue, 8, false);
   }
   function stats(){
     const n=guesses.length;
@@ -802,8 +825,8 @@ function setupCanvas(cv, cssH){
       await fetch(WOC_API_URL, { method:"POST", body: JSON.stringify({ guess: val, name: nameI.value.slice(0,24) }) });
       unlockResults();
       fetchResults();
+      msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅";
       if(isAdminView){
-        msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅ (โหมดอาจารย์ ส่งได้ไม่จำกัด รอบต่อไปได้เลย)";
         guessI.value=""; nameI.value=""; submitBtn.disabled=false;
       } else {
         safeSet("wocSubmittedAt", Date.now().toString());
@@ -819,21 +842,22 @@ function setupCanvas(cv, cssH){
   revealBtn.addEventListener("click", ()=>{
     const t=Number(trueI.value);
     if(!Number.isFinite(t) || t<0 || guesses.length===0) return;
+    trueValue=t;
     const {mean}=stats();
     const crowdErr = Math.abs(mean-t)/t*100;
     const soloErr = guesses.reduce((a,g)=>a+Math.abs(g-t),0)/guesses.length/t*100;
     document.getElementById("wocCrowdErr").textContent = crowdErr.toFixed(1)+"%";
     document.getElementById("wocSoloErr").textContent = soloErr.toFixed(1)+"%";
     compareBox.classList.add("show");
+    draw();
   });
 
   function pollControl(){
     const active = document.getElementById("s5").classList.contains("active");
-    if(active && unlocked && autoChk.checked && configured){
+    if(active && unlocked && configured){
       if(!pollTimer) pollTimer=setInterval(fetchResults, 6000);
     } else if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
   }
-  autoChk.addEventListener("change", pollControl);
   window.addEventListener("relayout", ()=>{ layout(); draw(); pollControl(); if(unlocked && document.getElementById("s5").classList.contains("active")) fetchResults(); });
 
   layout(); draw();
