@@ -147,6 +147,12 @@
   #s4 .canvas-box{max-width:460px;margin:0 auto}
 
   /* ---------- STATION 5: live survey ---------- */
+  .hidden{display:none}
+  .woc-locked{text-align:center;padding:34px 20px}
+  .woc-locked-icon{font-size:2.2rem;margin-bottom:10px;opacity:.7}
+  .woc-locked-text{font-family:"Kanit",sans-serif;font-size:1.05rem;color:var(--ink);margin:0 0 6px}
+  .woc-locked-sub{font-size:.85rem;color:var(--muted);margin:0}
+  .woc-admin-note{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--accent);background:rgba(58,210,159,.08);border:1px dashed var(--accent);border-radius:10px;padding:8px 14px;display:inline-block;margin:0 0 14px}
   .woc-form{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
   .woc-field{display:flex;flex-direction:column;gap:6px;flex:1 1 160px}
   .woc-field label{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.08em;color:var(--muted)}
@@ -364,7 +370,7 @@
       <div class="canvas-box"><canvas id="scatter"></canvas></div>
       <div class="slider-row">
         <label><span>เดาว่า r =</span><span class="guessval" id="corGuessVal">0.00</span></label>
-        <input type="range" id="corSlider" min="-1" max="1" step="0.01" value="0">
+        <input type="range" id="corSlider" min="-1" max="1" step="0.05" value="0">
       </div>
       <div class="controls" style="justify-content:center">
         <button class="btn" id="corCheck">เฉลย</button>
@@ -390,8 +396,9 @@
     <div class="slide-brand"><img src="__LOGO_STAT__" alt="" onerror="this.remove()"><span>ภาควิชาสถิติ · คณะวิทยาศาสตร์ มช.</span></div>
     <div class="st-head"><span class="st-num">05</span><h2>Wisdom of Crowds</h2><span class="live-badge"><span class="live-dot" id="wocDot"></span>ข้อมูลสด</span></div>
     <p class="st-sub">ในขวดที่วางอยู่นี้ <b>มีอะไรอยู่กี่ชิ้น?</b> กะด้วยสายตา แล้วพิมพ์ตัวเลขแรกที่นึกออก ไม่ต้องคิดนาน ทุกคนที่ตอบจะถูกเอาไปรวมกันเป็นคำตอบของ "ฝูงชน"</p>
+    <p class="woc-admin-note hidden" id="wocAdminNote">🎓 โหมดอาจารย์ · เห็นผลลัพธ์ได้เลยโดยไม่ต้องตอบ (สำหรับจอฉายเท่านั้น)</p>
 
-    <div class="card">
+    <div class="card" id="wocFormCard">
       <form class="woc-form" id="wocForm">
         <div class="woc-field">
           <label for="wocGuess">เดาว่ามีทั้งหมด (ชิ้น)</label>
@@ -406,7 +413,13 @@
       <div class="woc-msg" id="wocMsg"></div>
     </div>
 
-    <div class="card" style="margin-top:16px">
+    <div class="card woc-locked" id="wocLockedMsg" style="margin-top:16px">
+      <div class="woc-locked-icon">🔒</div>
+      <p class="woc-locked-text">ตอบคำถามของคุณก่อน แล้วจะเห็นผลรวมของทุกคนทันที</p>
+      <p class="woc-locked-sub">(กันไม่ให้เผลอเดาตามคนอื่น เพื่อให้ค่าเฉลี่ยของกลุ่มแม่นยำจริง ๆ)</p>
+    </div>
+
+    <div class="card hidden" id="wocResultsCard" style="margin-top:16px">
       <div class="woc-results-head">
         <h3 style="font-family:'Kanit',sans-serif;font-size:1.15rem;margin:0">ผลรวมจากทุกคน</h3>
         <div class="toggle-row">
@@ -666,18 +679,37 @@ function setupCanvas(cv, cssH){
   const refreshBtn=document.getElementById("wocRefresh"), autoChk=document.getElementById("wocAuto");
   const cv=document.getElementById("wocHist");
   const trueI=document.getElementById("wocTrue"), revealBtn=document.getElementById("wocReveal"), compareBox=document.getElementById("wocCompare");
-  let ctx,W,H, guesses=[], pollTimer=null, configured = WOC_API_URL.indexOf("http")===0;
+  const formCard=document.getElementById("wocFormCard"), lockedMsg=document.getElementById("wocLockedMsg"), resultsCard=document.getElementById("wocResultsCard"), adminNote=document.getElementById("wocAdminNote");
+  let ctx,W,H, guesses=[], pollTimer=null, unlocked=false, configured = WOC_API_URL.indexOf("http")===0;
 
   function safeGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function safeSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+  const isAdminView = new URLSearchParams(location.search).get("admin")==="1";
+
+  /* ผลลัพธ์จะถูกล็อกไว้จนกว่าเครื่องนี้จะส่งคำตอบของตัวเองก่อน กันไม่ให้เดาตามคนอื่น (anchoring) */
+  function unlockResults(){
+    if(unlocked) return;
+    unlocked = true;
+    lockedMsg.classList.add("hidden");
+    resultsCard.classList.remove("hidden");
+    pollControl();
+    fetchResults();
+  }
 
   if(!configured){
     msg.className="woc-msg err";
     msg.textContent="ยังไม่ได้ผูกกับ Google Sheets — ใส่ลิงก์ Web App ในโค้ด (ค้นหา WOC_API_URL) ก่อนใช้งานจริง";
     submitBtn.disabled=true;
+  } else if(isAdminView){
+    adminNote.classList.remove("hidden");
+    formCard.classList.add("hidden");
+    lockedMsg.classList.add("hidden");
+    unlockResults();
   } else if(safeGet("wocSubmitted")==="1"){
     guessI.disabled=true; nameI.disabled=true; submitBtn.disabled=true;
-    msg.className="woc-msg ok"; msg.textContent="เครื่องนี้ส่งคำตอบไปแล้ว ✅ เลื่อนลงไปดูผลรวมได้เลย";
+    msg.className="woc-msg ok"; msg.textContent="เครื่องนี้ส่งคำตอบไปแล้ว ✅ ดูผลรวมด้านล่างได้เลย";
+    unlockResults();
   }
 
   function layout(){ if(!cv)return; const d=setupCanvas(cv, Math.min(380, Math.max(220, cv.clientWidth*0.55))); ctx=d.ctx; W=d.w; H=d.h; }
@@ -718,7 +750,7 @@ function setupCanvas(cv, cssH){
   }
 
   async function fetchResults(){
-    if(!configured) return;
+    if(!configured || !unlocked) return;
     try{
       const res = await fetch(WOC_API_URL, {method:"GET"});
       const data = await res.json();
@@ -740,8 +772,8 @@ function setupCanvas(cv, cssH){
       await fetch(WOC_API_URL, { method:"POST", body: JSON.stringify({ guess: val, name: nameI.value.slice(0,24) }) });
       safeSet("wocSubmitted","1");
       guessI.disabled=true; nameI.disabled=true;
-      msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅ ขอบคุณมาก! เลื่อนลงไปดูผลรวมได้เลย";
-      fetchResults();
+      msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅ ขอบคุณมาก! ดูผลรวมด้านล่างได้เลย";
+      unlockResults();
     }catch(err){
       submitBtn.disabled=false;
       msg.className="woc-msg err"; msg.textContent="ส่งไม่สำเร็จ ลองใหม่อีกครั้ง (เช็คอินเทอร์เน็ต)";
@@ -762,12 +794,12 @@ function setupCanvas(cv, cssH){
 
   function pollControl(){
     const active = document.getElementById("s5").classList.contains("active");
-    if(active && autoChk.checked && configured){
+    if(active && unlocked && autoChk.checked && configured){
       if(!pollTimer) pollTimer=setInterval(fetchResults, 6000);
     } else if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
   }
   autoChk.addEventListener("change", pollControl);
-  window.addEventListener("relayout", ()=>{ layout(); draw(); pollControl(); if(document.getElementById("s5").classList.contains("active")) fetchResults(); });
+  window.addEventListener("relayout", ()=>{ layout(); draw(); pollControl(); if(unlocked && document.getElementById("s5").classList.contains("active")) fetchResults(); });
 
   layout(); draw();
   new ResizeObserver(()=>{layout();draw();}).observe(cv);
