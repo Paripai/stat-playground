@@ -135,6 +135,7 @@
   .coin.H{background:#243352;color:#9fc4ff;border-color:#33507f}
   .coin.T{background:#2f2442;color:#d3b3ff;border-color:#4b3a70}
   .coin.run{outline:2px solid var(--gold);outline-offset:1px}
+  .rf-note{margin-top:10px;font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--accent)}
   .verdict{text-align:center;font-family:"Kanit",sans-serif;font-size:1.12rem;min-height:1.5em;margin:16px 0 4px}
 
   /* ---------- correlation ---------- */
@@ -152,7 +153,6 @@
   .woc-locked-icon{font-size:2.2rem;margin-bottom:10px;opacity:.7}
   .woc-locked-text{font-family:"Kanit",sans-serif;font-size:1.05rem;color:var(--ink);margin:0 0 6px}
   .woc-locked-sub{font-size:.85rem;color:var(--muted);margin:0}
-  .woc-admin-note{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--accent);background:rgba(58,210,159,.08);border:1px dashed var(--accent);border-radius:10px;padding:8px 14px;display:inline-block;margin:0 0 14px}
   .woc-form{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
   .woc-field{display:flex;flex-direction:column;gap:6px;flex:1 1 160px}
   .woc-field label{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.08em;color:var(--muted)}
@@ -349,13 +349,13 @@
       <div class="readout">
         <div class="stat"><div class="lab">ทายถูก</div><div class="val" id="rfRight">0</div></div>
         <div class="stat"><div class="lab">ทายทั้งหมด</div><div class="val" id="rfTotal">0</div></div>
-        <div class="stat"><div class="lab">ช่วงซ้ำยาวสุด (จริง)</div><div class="val" id="rfRun">—</div></div>
       </div>
     </div>
-    <button class="reveal-btn" type="button">ดูออกได้ยังไงว่าอันไหนของจริง?</button>
+    <button class="reveal-btn" type="button" id="rfRevealBtn">ดูออกได้ยังไงว่าอันไหนของจริง?</button>
     <div class="explain hidden">
       <div class="tag">หลักการเบื้องหลัง</div>
       <p><b>สัญชาตญาณเรื่องการสุ่มมักหลอกเรา</b> — คนส่วนใหญ่คิดว่า “สุ่ม” แปลว่าต้องสลับหัว-ก้อยไปมาบ่อย ๆ เลยไม่กล้าเขียนซ้ำติดกันยาว ๆ แต่การสุ่มจริงกลับมี <b>ช่วงซ้ำยาว</b> กว่าที่คิด (โยน 20 ครั้ง เจอออกซ้ำติดกัน 4-5 ตัวถือเป็นเรื่องปกติมาก) ตัวที่ฟ้องคนแกล้งสุ่มได้ดีที่สุดคือ “ความยาวของช่วงซ้ำที่ยาวที่สุด” นั่นเอง</p>
+      <p class="rf-note" id="rfRunNote"></p>
     </div>
   </div>
 </section>
@@ -370,7 +370,7 @@
       <div class="canvas-box"><canvas id="scatter"></canvas></div>
       <div class="slider-row">
         <label><span>เดาว่า r =</span><span class="guessval" id="corGuessVal">0.00</span></label>
-        <input type="range" id="corSlider" min="-1" max="1" step="0.05" value="0">
+        <input type="range" id="corSlider" min="-1" max="1" step="0.01" value="0">
       </div>
       <div class="controls" style="justify-content:center">
         <button class="btn" id="corCheck">เฉลย</button>
@@ -396,7 +396,6 @@
     <div class="slide-brand"><img src="__LOGO_STAT__" alt="" onerror="this.remove()"><span>ภาควิชาสถิติ · คณะวิทยาศาสตร์ มช.</span></div>
     <div class="st-head"><span class="st-num">05</span><h2>Wisdom of Crowds</h2><span class="live-badge"><span class="live-dot" id="wocDot"></span>ข้อมูลสด</span></div>
     <p class="st-sub">ในขวดที่วางอยู่นี้ <b>มีอะไรอยู่กี่ชิ้น?</b> กะด้วยสายตา แล้วพิมพ์ตัวเลขแรกที่นึกออก ไม่ต้องคิดนาน ทุกคนที่ตอบจะถูกเอาไปรวมกันเป็นคำตอบของ "ฝูงชน"</p>
-    <p class="woc-admin-note hidden" id="wocAdminNote">🎓 โหมดอาจารย์ · เห็นผลลัพธ์ได้เลยโดยไม่ต้องตอบ (สำหรับจอฉายเท่านั้น)</p>
 
     <div class="card" id="wocFormCard">
       <form class="woc-form" id="wocForm">
@@ -434,7 +433,7 @@
         <div class="stat"><div class="lab">มัธยฐาน</div><div class="val" id="wocMedian">—</div></div>
       </div>
 
-      <details class="admin-box">
+      <details class="admin-box hidden" id="wocAdminBox">
         <summary>สำหรับผู้ดำเนินกิจกรรม · เฉลยคำตอบจริง</summary>
         <div class="admin-inner">
           <div class="woc-field" style="flex:0 1 220px">
@@ -621,22 +620,29 @@ function setupCanvas(cv, cssH){
 (function(){
   const N=22, elA=document.getElementById("rfA"), elB=document.getElementById("rfB");
   const seqs=[...document.querySelectorAll("#rfWrap .seq")], verdict=document.getElementById("rfVerdict"), bNew=document.getElementById("rfNew");
+  const revealBtn=document.getElementById("rfRevealBtn"), runNote=document.getElementById("rfRunNote");
   let realSide,right=0,totalG=0,locked=false,seqReal,seqFake;
   function genReal(){ return Array.from({length:N},()=>Math.random()<0.5?"H":"T"); }
   function genFake(){ const s=[];let last=null,run=0; for(let i=0;i<N;i++){ let v=Math.random()<0.5?"H":"T"; if(v===last&&run>=2&&Math.random()<0.85)v=last==="H"?"T":"H"; if(v===last)run++;else{run=1;last=v;} last=v;s.push(v);} return s; }
   function longestRun(s){ let best=1,cur=1; for(let i=1;i<s.length;i++){if(s[i]===s[i-1]){cur++;best=Math.max(best,cur);}else cur=1;} return best; }
   function runMask(s){ let best=1,cur=1,end=0; for(let i=1;i<s.length;i++){if(s[i]===s[i-1]){cur++;if(cur>best){best=cur;end=i;}}else cur=1;} const m=new Array(s.length).fill(false); for(let i=end;i>end-best;i--)m[i]=true; return m; }
   function render(seq,el,mask){ el.innerHTML=""; seq.forEach((c,i)=>{const d=document.createElement("div");d.className="coin "+c+(mask&&mask[i]?" run":"");d.textContent=c;el.appendChild(d);}); }
-  function neu(){ seqReal=genReal();seqFake=genFake();realSide=Math.random()<0.5?"A":"B";locked=false;verdict.textContent="";verdict.style.color="var(--muted)";seqs.forEach(s=>s.className="seq");
+  function neu(){ seqReal=genReal();seqFake=genFake();realSide=Math.random()<0.5?"A":"B";locked=false;verdict.textContent="";verdict.style.color="var(--muted)";seqs.forEach(s=>s.className="seq"); runNote.textContent="";
     if(realSide==="A"){render(seqReal,elA);render(seqFake,elB);}else{render(seqFake,elA);render(seqReal,elB);} }
   function guess(side){ if(locked)return; locked=true;totalG++; const correct=side===realSide; if(correct)right++;
-    const mR=runMask(seqReal),mF=runMask(seqFake);
-    if(realSide==="A"){render(seqReal,elA,mR);render(seqFake,elB,mF);}else{render(seqFake,elA,mF);render(seqReal,elB,mR);}
     seqs.forEach(s=>{s.classList.add("locked"); s.classList.add(s.dataset.i===realSide?"correct":"wrong");});
     verdict.style.color=correct?"var(--win)":"var(--coral)";
-    verdict.textContent=(correct?"ถูกต้อง! ":"ยังไม่ใช่ ")+"ลำดับ "+realSide+" คือของจริง (ช่วงซ้ำยาว "+longestRun(seqReal)+" ตัว)";
-    document.getElementById("rfRight").textContent=right; document.getElementById("rfTotal").textContent=totalG; document.getElementById("rfRun").textContent=longestRun(seqReal)+" ตัว"; }
+    verdict.textContent=(correct?"ถูกต้อง! ":"ยังไม่ใช่ ")+"ลำดับ "+realSide+" คือของจริง";
+    document.getElementById("rfRight").textContent=right; document.getElementById("rfTotal").textContent=totalG; }
   seqs.forEach(s=>s.onclick=()=>guess(s.dataset.i)); bNew.onclick=neu; neu();
+
+  /* ปุ่ม "ดูออกได้ยังไง" — ไฮไลต์ช่วงซ้ำยาวที่สุดเฉพาะตอนกดเท่านั้น ไม่โชว์อัตโนมัติตอนเฉลยถูก/ผิด */
+  revealBtn.addEventListener("click", ()=>{
+    if(!locked){ runNote.textContent="เลือกคำตอบของรอบนี้ก่อน แล้วค่อยกดปุ่มนี้เพื่อดูจุดสังเกต"; return; }
+    const mR=runMask(seqReal), mF=runMask(seqFake);
+    if(realSide==="A"){ render(seqReal,elA,mR); render(seqFake,elB,mF); } else { render(seqFake,elA,mF); render(seqReal,elB,mR); }
+    runNote.textContent="สังเกตวงที่เรืองแสง — นั่นคือช่วงซ้ำยาวที่สุดของลำดับจริง (ยาว "+longestRun(seqReal)+" ตัว) ลองเทียบกับของปลอมดู";
+  });
 })();
 
 /* ================= CORRELATION ================= */
@@ -673,14 +679,15 @@ function setupCanvas(cv, cssH){
   /* ===== ตั้งค่าตรงนี้: วางลิงก์ Google Apps Script Web App หลัง deploy เสร็จ ===== */
   const WOC_API_URL = "https://script.google.com/macros/s/AKfycbyXdfym-_0et8eQ1BbQ64s79Nvz1oGTWfHB6k_oAjN3yHFFP6Ky_OZoGXReJ4bd2iP5jA/exec";
   /* ============================================================================ */
+  const COOLDOWN_MS = 10*60*1000; /* กันสแปม/เดาซ้ำสำหรับคนทั่วไป: ส่งแล้วรอ 10 นาทีถึงส่งใหม่ได้ */
 
   const form=document.getElementById("wocForm"), guessI=document.getElementById("wocGuess"), nameI=document.getElementById("wocName");
   const submitBtn=document.getElementById("wocSubmitBtn"), msg=document.getElementById("wocMsg"), dot=document.getElementById("wocDot");
   const refreshBtn=document.getElementById("wocRefresh"), autoChk=document.getElementById("wocAuto");
   const cv=document.getElementById("wocHist");
   const trueI=document.getElementById("wocTrue"), revealBtn=document.getElementById("wocReveal"), compareBox=document.getElementById("wocCompare");
-  const formCard=document.getElementById("wocFormCard"), lockedMsg=document.getElementById("wocLockedMsg"), resultsCard=document.getElementById("wocResultsCard"), adminNote=document.getElementById("wocAdminNote");
-  let ctx,W,H, guesses=[], pollTimer=null, unlocked=false, configured = WOC_API_URL.indexOf("http")===0;
+  const lockedMsg=document.getElementById("wocLockedMsg"), resultsCard=document.getElementById("wocResultsCard"), adminBox=document.getElementById("wocAdminBox");
+  let ctx,W,H, guesses=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, configured = WOC_API_URL.indexOf("http")===0;
 
   function safeGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function safeSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
@@ -697,19 +704,42 @@ function setupCanvas(cv, cssH){
     fetchResults();
   }
 
+  function tickCooldown(){
+    const left = unlockAt - Date.now();
+    if(left<=0){
+      if(cooldownTimer){ clearInterval(cooldownTimer); cooldownTimer=null; }
+      guessI.disabled=false; nameI.disabled=false; submitBtn.disabled=false;
+      msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้งแล้ว ✅";
+      return;
+    }
+    const mm=Math.floor(left/60000), ss=Math.floor((left%60000)/1000);
+    msg.className="woc-msg ok";
+    msg.textContent="ส่งคำตอบแล้ว ✅ รออีก "+mm+":"+String(ss).padStart(2,"0")+" ถึงจะตอบใหม่ได้ (ดูผลรวมด้านล่างได้เลย)";
+  }
+  function startCooldown(untilTs){
+    unlockAt=untilTs;
+    guessI.disabled=true; nameI.disabled=true; submitBtn.disabled=true;
+    if(cooldownTimer) clearInterval(cooldownTimer);
+    cooldownTimer=setInterval(tickCooldown,1000);
+    tickCooldown();
+  }
+
   if(!configured){
     msg.className="woc-msg err";
     msg.textContent="ยังไม่ได้ผูกกับ Google Sheets — ใส่ลิงก์ Web App ในโค้ด (ค้นหา WOC_API_URL) ก่อนใช้งานจริง";
     submitBtn.disabled=true;
   } else if(isAdminView){
-    adminNote.classList.remove("hidden");
-    formCard.classList.add("hidden");
-    lockedMsg.classList.add("hidden");
+    /* โหมดอาจารย์: เดาได้ไม่จำกัด ไม่มีล็อก + เห็นกล่องเฉลยคำตอบจริง */
+    adminBox.classList.remove("hidden");
     unlockResults();
-  } else if(safeGet("wocSubmitted")==="1"){
-    guessI.disabled=true; nameI.disabled=true; submitBtn.disabled=true;
-    msg.className="woc-msg ok"; msg.textContent="เครื่องนี้ส่งคำตอบไปแล้ว ✅ ดูผลรวมด้านล่างได้เลย";
-    unlockResults();
+  } else {
+    const lastTs = Number(safeGet("wocSubmittedAt"));
+    if(Number.isFinite(lastTs) && lastTs>0){
+      unlockResults();
+      const until = lastTs + COOLDOWN_MS;
+      if(Date.now() < until){ startCooldown(until); }
+      else { msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้ง หรือดูผลรวมด้านล่างได้เลย"; }
+    }
   }
 
   function layout(){ if(!cv)return; const d=setupCanvas(cv, Math.min(380, Math.max(220, cv.clientWidth*0.55))); ctx=d.ctx; W=d.w; H=d.h; }
@@ -770,10 +800,15 @@ function setupCanvas(cv, cssH){
     submitBtn.disabled=true; msg.className="woc-msg"; msg.textContent="กำลังส่ง...";
     try{
       await fetch(WOC_API_URL, { method:"POST", body: JSON.stringify({ guess: val, name: nameI.value.slice(0,24) }) });
-      safeSet("wocSubmitted","1");
-      guessI.disabled=true; nameI.disabled=true;
-      msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅ ขอบคุณมาก! ดูผลรวมด้านล่างได้เลย";
       unlockResults();
+      fetchResults();
+      if(isAdminView){
+        msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅ (โหมดอาจารย์ ส่งได้ไม่จำกัด รอบต่อไปได้เลย)";
+        guessI.value=""; nameI.value=""; submitBtn.disabled=false;
+      } else {
+        safeSet("wocSubmittedAt", Date.now().toString());
+        startCooldown(Date.now()+COOLDOWN_MS);
+      }
     }catch(err){
       submitBtn.disabled=false;
       msg.className="woc-msg err"; msg.textContent="ส่งไม่สำเร็จ ลองใหม่อีกครั้ง (เช็คอินเทอร์เน็ต)";
