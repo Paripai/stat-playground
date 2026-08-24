@@ -185,6 +185,17 @@
   .compare-card .val{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:1.5rem;margin-top:4px}
   .compare-card.crowd .val{color:var(--win)}
 
+  .woc-top3{margin-top:16px}
+  .woc-top3-tag{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+  .woc-top3 ol{margin:0;padding-left:22px;color:var(--ink);font-family:"IBM Plex Sans Thai",sans-serif;font-size:.97rem;line-height:1.9}
+  .woc-top3 ol li b{color:var(--win)}
+  .woc-top3 ol li span{color:var(--faint);font-family:"IBM Plex Mono",monospace;font-size:.85em}
+
+  .woc-danger-zone{margin-top:20px;border-top:1px dashed var(--line);padding-top:16px}
+  .woc-danger-btn{border-color:rgba(255,107,107,.5);color:var(--coral)}
+  .woc-danger-btn:hover{border-color:var(--coral);background:rgba(255,107,107,.08);color:var(--coral)}
+  .woc-danger-note{font-size:.82rem;color:var(--muted);margin:8px 0 0}
+
   /* ---------- OUTRO ---------- */
   #outro .slide-inner{text-align:center;align-items:center}
   #outro h3{font-family:"Kanit",sans-serif;font-size:clamp(1.6rem,4.5vw,2.4rem);margin:0 0 12px}
@@ -408,7 +419,7 @@
         </div>
         <div class="woc-field">
           <label for="wocName">ชื่อเล่น</label>
-          <input type="text" id="wocName" maxlength="24" placeholder="เช่น เกม">
+          <input type="text" id="wocName" maxlength="24" placeholder="เช่น James">
         </div>
         <button class="btn" type="submit" id="wocSubmitBtn">ส่งคำตอบ</button>
       </form>
@@ -450,6 +461,14 @@
         <div class="compare-box" id="wocCompare">
           <div class="compare-card crowd"><div class="lab">ค่าเฉลี่ยของฝูงชน คลาดเคลื่อน</div><div class="val" id="wocCrowdErr">—</div></div>
           <div class="compare-card solo"><div class="lab">คนเดี่ยวทั่วไป คลาดเคลื่อนเฉลี่ย</div><div class="val" id="wocSoloErr">—</div></div>
+        </div>
+        <div class="woc-top3 hidden" id="wocTop3">
+          <div class="woc-top3-tag">ทายใกล้เคียงที่สุด 3 อันดับ</div>
+          <ol id="wocTop3List"></ol>
+        </div>
+        <div class="woc-danger-zone">
+          <button class="btn ghost woc-danger-btn" id="wocClearBtn" type="button">🗑️ ล้างข้อมูลทั้งหมด</button>
+          <p class="woc-danger-note">ลบคำตอบทั้งหมดใน Google Sheet ทันที เพื่อเริ่มรอบใหม่ (กู้คืนไม่ได้ ไม่ต้องเข้าไปลบเองใน Sheet)</p>
         </div>
       </details>
     </div>
@@ -701,6 +720,7 @@ function setupCanvas(cv, cssH){
 (function(){
   /* ===== ตั้งค่าตรงนี้: วางลิงก์ Google Apps Script Web App หลัง deploy เสร็จ ===== */
   const WOC_API_URL = "https://script.google.com/macros/s/AKfycbyXdfym-_0et8eQ1BbQ64s79Nvz1oGTWfHB6k_oAjN3yHFFP6Ky_OZoGXReJ4bd2iP5jA/exec";
+  const WOC_CLEAR_SECRET = "cmustat-clear-2026"; /* ต้องตรงกับ CLEAR_SECRET ใน apps-script-code.gs เป๊ะ ๆ */
   /* ============================================================================ */
   const COOLDOWN_MS = 10*60*1000; /* กันสแปม/เดาซ้ำสำหรับคนทั่วไป: ส่งแล้วรอ 10 นาทีถึงส่งใหม่ได้ */
 
@@ -709,9 +729,12 @@ function setupCanvas(cv, cssH){
   const refreshBtn=document.getElementById("wocRefresh");
   const cv=document.getElementById("wocHist");
   const trueI=document.getElementById("wocTrue"), revealBtn=document.getElementById("wocReveal"), compareBox=document.getElementById("wocCompare");
+  const top3Box=document.getElementById("wocTop3"), top3List=document.getElementById("wocTop3List"), clearBtn=document.getElementById("wocClearBtn");
   const lockedMsg=document.getElementById("wocLockedMsg"), resultsCard=document.getElementById("wocResultsCard"), adminBox=document.getElementById("wocAdminBox");
   const resultsViz=document.getElementById("wocResultsViz"), toggleViewBtn=document.getElementById("wocToggleView");
-  let ctx,W,H, guesses=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, trueValue=null, vizHidden=false, configured = WOC_API_URL.indexOf("http")===0;
+  let ctx,W,H, guesses=[], entries=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, trueValue=null, vizHidden=false, configured = WOC_API_URL.indexOf("http")===0;
+
+  function escHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
   function safeGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function safeSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
@@ -828,7 +851,8 @@ function setupCanvas(cv, cssH){
     try{
       const res = await fetch(WOC_API_URL, {method:"GET"});
       const data = await res.json();
-      guesses = (Array.isArray(data)?data:[]).map(r=>Number(r.guess)).filter(v=>Number.isFinite(v)&&v>=0);
+      entries = (Array.isArray(data)?data:[]).map(r=>({name:(r.name||"").toString(), guess:Number(r.guess)})).filter(e=>Number.isFinite(e.guess)&&e.guess>=0);
+      guesses = entries.map(e=>e.guess);
       dot.classList.add("on");
       draw(); stats();
     }catch(err){
@@ -870,7 +894,36 @@ function setupCanvas(cv, cssH){
     document.getElementById("wocCrowdErr").textContent = crowdErr.toFixed(1)+"%";
     document.getElementById("wocSoloErr").textContent = soloErr.toFixed(1)+"%";
     compareBox.classList.add("show");
+
+    /* 3 อันดับทายใกล้เคียงที่สุด — เท่ากันให้คนตอบก่อน (index น้อยกว่า) ชนะ */
+    const ranked = entries
+      .map((e,i)=>({name:e.name, guess:e.guess, idx:i, diff:Math.abs(e.guess-t)}))
+      .sort((a,b)=> a.diff-b.diff || a.idx-b.idx)
+      .slice(0,3);
+    top3List.innerHTML = ranked.map((r,i)=>
+      `<li><b>#${i+1} ${escHtml(r.name.trim()||"ผู้เล่นนิรนาม")}</b> — ทาย ${r.guess} <span>(คลาดเคลื่อน ${r.diff.toFixed(1)})</span></li>`
+    ).join("");
+    top3Box.classList.remove("hidden");
     draw();
+  });
+
+  clearBtn.addEventListener("click", async ()=>{
+    if(!configured) return;
+    if(!confirm("ล้างคำตอบทั้งหมดใน Google Sheet ตอนนี้เลยไหม? กู้คืนไม่ได้นะ")) return;
+    clearBtn.disabled=true; const origTxt=clearBtn.textContent; clearBtn.textContent="กำลังล้าง...";
+    try{
+      await fetch(WOC_API_URL, { method:"POST", body: JSON.stringify({ action:"clear", secret: WOC_CLEAR_SECRET }) });
+      trueValue=null; entries=[]; guesses=[];
+      compareBox.classList.remove("show");
+      top3Box.classList.add("hidden");
+      trueI.value="";
+      await fetchResults();
+      clearBtn.textContent="ล้างข้อมูลแล้ว ✅";
+    }catch(err){
+      clearBtn.textContent="ล้างไม่สำเร็จ ลองใหม่";
+    }finally{
+      setTimeout(()=>{ clearBtn.disabled=false; clearBtn.textContent=origTxt; }, 2500);
+    }
   });
 
   function pollControl(){
