@@ -732,7 +732,7 @@ function setupCanvas(cv, cssH){
   const top3Box=document.getElementById("wocTop3"), top3List=document.getElementById("wocTop3List"), clearBtn=document.getElementById("wocClearBtn");
   const lockedMsg=document.getElementById("wocLockedMsg"), resultsCard=document.getElementById("wocResultsCard"), adminBox=document.getElementById("wocAdminBox");
   const resultsViz=document.getElementById("wocResultsViz"), toggleViewBtn=document.getElementById("wocToggleView");
-  let ctx,W,H, guesses=[], entries=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, trueValue=null, vizHidden=false, configured = WOC_API_URL.indexOf("http")===0;
+  let ctx,W,H, guesses=[], entries=[], pollTimer=null, unlocked=false, cooldownTimer=null, unlockAt=0, trueValue=null, vizHidden=false, currentRound=null, configured = WOC_API_URL.indexOf("http")===0;
 
   function escHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
@@ -742,13 +742,23 @@ function setupCanvas(cv, cssH){
   const isAdminView = new URLSearchParams(location.search).get("admin")==="1";
 
   /* ผลลัพธ์จะถูกล็อกไว้จนกว่าเครื่องนี้จะส่งคำตอบของตัวเองก่อน กันไม่ให้เดาตามคนอื่น (anchoring) */
-  function unlockResults(){
+  function showResultsUI(){
     if(unlocked) return;
     unlocked = true;
     lockedMsg.classList.add("hidden");
     resultsCard.classList.remove("hidden");
     pollControl();
-    fetchResults();
+  }
+
+  /* ถ้าอาจารย์กด "ล้างข้อมูล" ระหว่างที่เรายังนับถอยหลังรออยู่ ให้ปลดล็อกให้ตอบใหม่ได้ทันทีโดยไม่ต้องรอครบเวลา */
+  function checkRoundReset(round){
+    if(isAdminView || round==null) return;
+    const lastRound = safeGet("wocSubmittedRound");
+    if(lastRound!=null && round!==lastRound && cooldownTimer){
+      clearTimeout(cooldownTimer); cooldownTimer=null;
+      guessI.disabled=false; nameI.disabled=false; submitBtn.disabled=false;
+      msg.className="woc-msg ok"; msg.textContent="เริ่มรอบใหม่แล้ว ตอบได้อีกครั้ง ✅";
+    }
   }
 
   function startCooldown(untilTs){
@@ -757,6 +767,7 @@ function setupCanvas(cv, cssH){
     if(cooldownTimer) clearTimeout(cooldownTimer);
     const remain=Math.max(0, untilTs-Date.now());
     cooldownTimer=setTimeout(()=>{
+      cooldownTimer=null;
       guessI.disabled=false; nameI.disabled=false; submitBtn.disabled=false;
       msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้งแล้ว ✅";
     }, remain);
@@ -770,13 +781,22 @@ function setupCanvas(cv, cssH){
     /* โหมดอาจารย์: เดาได้ไม่จำกัด ไม่มีล็อก + เห็นกล่องเฉลยคำตอบจริง + ปุ่มซ่อน/แสดงผล */
     adminBox.classList.remove("hidden");
     toggleViewBtn.classList.remove("hidden");
-    unlockResults();
+    showResultsUI();
+    fetchResults();
   } else {
     const lastTs = Number(safeGet("wocSubmittedAt"));
     if(Number.isFinite(lastTs) && lastTs>0){
-      unlockResults();
-      const until = lastTs + COOLDOWN_MS;
-      if(Date.now() < until) startCooldown(until);
+      showResultsUI();
+      fetchResults().then(round=>{
+        const lastRound = safeGet("wocSubmittedRound");
+        const roundChanged = (round!=null) && (lastRound!=null) && (round!==lastRound);
+        if(!roundChanged){
+          const until = lastTs + COOLDOWN_MS;
+          if(Date.now() < until) startCooldown(until);
+        } else {
+          msg.className="woc-msg ok"; msg.textContent="เริ่มรอบใหม่แล้ว ตอบได้อีกครั้ง ✅";
+        }
+      });
     }
   }
 
@@ -847,16 +867,23 @@ function setupCanvas(cv, cssH){
   }
 
   async function fetchResults(){
-    if(!configured || !unlocked) return;
+    if(!configured || !unlocked) return null;
     try{
       const res = await fetch(WOC_API_URL, {method:"GET"});
       const data = await res.json();
-      entries = (Array.isArray(data)?data:[]).map(r=>({name:(r.name||"").toString(), guess:Number(r.guess)})).filter(e=>Number.isFinite(e.guess)&&e.guess>=0);
+      let round=null, rows=[];
+      if(Array.isArray(data)){ rows=data; } /* รองรับ Apps Script เวอร์ชันเก่าที่ยังไม่มีระบบเลขรอบ */
+      else if(data && Array.isArray(data.entries)){ rows=data.entries; round=(data.round!=null)?String(data.round):null; }
+      currentRound=round;
+      entries = rows.map(r=>({name:(r.name||"").toString(), guess:Number(r.guess)})).filter(e=>Number.isFinite(e.guess)&&e.guess>=0);
       guesses = entries.map(e=>e.guess);
       dot.classList.add("on");
       draw(); stats();
+      checkRoundReset(round);
+      return round;
     }catch(err){
       dot.classList.remove("on");
+      return null;
     }
   }
 
@@ -868,13 +895,14 @@ function setupCanvas(cv, cssH){
     submitBtn.disabled=true; msg.className="woc-msg"; msg.textContent="กำลังส่ง...";
     try{
       await fetch(WOC_API_URL, { method:"POST", body: JSON.stringify({ guess: val, name: nameI.value.slice(0,24) }) });
-      unlockResults();
-      fetchResults();
+      showResultsUI();
+      const round = await fetchResults();
       msg.className="woc-msg ok"; msg.textContent="ส่งคำตอบแล้ว ✅";
       if(isAdminView){
         guessI.value=""; nameI.value=""; submitBtn.disabled=false;
       } else {
         safeSet("wocSubmittedAt", Date.now().toString());
+        if(round!=null) safeSet("wocSubmittedRound", round);
         startCooldown(Date.now()+COOLDOWN_MS);
       }
     }catch(err){
