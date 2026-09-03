@@ -184,6 +184,8 @@
   .compare-card .lab{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
   .compare-card .val{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:1.5rem;margin-top:4px}
   .compare-card.crowd .val{color:var(--win)}
+  .compare-card.truev{border-color:#eef1fb;background:rgba(238,241,251,.06)}
+  .compare-card.truev .val{color:#eef1fb}
 
   .woc-top3{margin-top:16px}
   .woc-top3-tag{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
@@ -494,7 +496,7 @@
         </div>
         <div class="compare-box" id="corrCompare">
           <div class="compare-card crowd"><div class="lab">ค่าเฉลี่ยของฝูงชน คลาดเคลื่อน</div><div class="val" id="corrCrowdErr">—</div></div>
-          <div class="compare-card solo"><div class="lab">คนเดี่ยวทั่วไป คลาดเคลื่อนเฉลี่ย</div><div class="val" id="corrSoloErr">—</div></div>
+          <div class="compare-card truev"><div class="lab">ค่า r จริง</div><div class="val" id="corrRealR">—</div></div>
         </div>
         <div class="woc-top3 hidden" id="corrTop3">
           <div class="woc-top3-tag">ทายใกล้เคียงที่สุด 3 อันดับ</div>
@@ -1179,9 +1181,8 @@ function setupCanvas(cv, cssH){
     revealed=true;
     const n=guesses.length, mean=guesses.reduce((a,b)=>a+b,0)/n;
     const crowdErr = Math.abs(mean-realR);
-    const soloErr = guesses.reduce((a,g)=>a+Math.abs(g-realR),0)/n;
     document.getElementById("corrCrowdErr").textContent = crowdErr.toFixed(3);
-    document.getElementById("corrSoloErr").textContent = soloErr.toFixed(3);
+    document.getElementById("corrRealR").textContent = realR.toFixed(2);
     compareBox.classList.add("show");
 
     const ranked = entries.map((e,i)=>({name:e.name, guess:e.guess, idx:i, diff:Math.abs(e.guess-realR)})).sort((a,b)=>a.diff-b.diff || a.idx-b.idx).slice(0,3);
