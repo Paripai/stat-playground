@@ -484,8 +484,6 @@
         <div class="canvas-box" style="max-width:640px;margin:14px auto 0"><canvas id="corrHist"></canvas></div>
         <div class="readout">
           <div class="stat"><div class="lab">คนตอบแล้ว</div><div class="val" id="corrN">0<small> คน</small></div></div>
-          <div class="stat"><div class="lab">ค่าเฉลี่ยที่ทาย</div><div class="val" id="corrMean">—</div></div>
-          <div class="stat"><div class="lab">มัธยฐาน</div><div class="val" id="corrMedian">—</div></div>
         </div>
       </div>
 
@@ -495,7 +493,6 @@
           <button class="btn ghost" id="corrReveal" type="button">เฉลยและดูอันดับ</button>
         </div>
         <div class="compare-box" id="corrCompare">
-          <div class="compare-card crowd"><div class="lab">ค่าเฉลี่ยของฝูงชน คลาดเคลื่อน</div><div class="val" id="corrCrowdErr">—</div></div>
           <div class="compare-card truev"><div class="lab">ค่า r จริง</div><div class="val" id="corrRealR">—</div></div>
         </div>
         <div class="woc-top3 hidden" id="corrTop3">
@@ -1110,29 +1107,19 @@ function setupCanvas(cv, cssH){
     hctx.textAlign="left"; hctx.fillText("-1", 2, hH-6);
     hctx.textAlign="center"; hctx.fillText("0", hW/2, hH-6);
     hctx.textAlign="right"; hctx.fillText("1", hW-2, hH-6);
-    const n=guesses.length, meanV=guesses.reduce((a,b)=>a+b,0)/n, sorted=[...guesses].sort((a,b)=>a-b);
-    const medianV = n%2===1 ? sorted[(n-1)/2] : (sorted[n/2-1]+sorted[n/2])/2;
-    function xFor(v){ return Math.max(2,Math.min(hW-2, ((v-min)/span)*hW)); }
-    function marker(v,color,label,labelY,dashed){
-      const x=xFor(v); hctx.save(); hctx.strokeStyle=color; hctx.lineWidth=dashed?1.6:2.2;
-      if(dashed) hctx.setLineDash([5,4]);
-      hctx.beginPath(); hctx.moveTo(x,10); hctx.lineTo(x,hH-24); hctx.stroke(); hctx.setLineDash([]);
-      hctx.fillStyle=color; hctx.font="600 11px 'IBM Plex Mono'";
+    if(revealed){
+      function xFor(v){ return Math.max(2,Math.min(hW-2, ((v-min)/span)*hW)); }
+      const x=xFor(realR);
+      hctx.save(); hctx.strokeStyle="#eef1fb"; hctx.lineWidth=2.2;
+      hctx.beginPath(); hctx.moveTo(x,10); hctx.lineTo(x,hH-24); hctx.stroke();
+      hctx.fillStyle="#eef1fb"; hctx.font="600 11px 'IBM Plex Mono'";
       hctx.textAlign = x>hW-46 ? "right" : (x<46 ? "left" : "center");
-      hctx.fillText(label, x, labelY); hctx.restore();
+      hctx.fillText("ค่าจริง "+realR.toFixed(2), x, 20); hctx.restore();
     }
-    marker(meanV, "#f2c14e", "เฉลี่ย "+meanV.toFixed(2), 22, true);
-    marker(medianV, "#4ea6f2", "มัธยฐาน "+medianV.toFixed(2), 36, true);
-    if(revealed) marker(realR, "#eef1fb", "ค่าจริง "+realR.toFixed(2), 8, false);
   }
   function statsBox(){
     const n=guesses.length;
     document.getElementById("corrN").innerHTML=n+"<small> คน</small>";
-    if(n===0){ document.getElementById("corrMean").textContent="—"; document.getElementById("corrMedian").textContent="—"; return; }
-    const mean=guesses.reduce((a,b)=>a+b,0)/n, sorted=[...guesses].sort((a,b)=>a-b);
-    const median = n%2===1 ? sorted[(n-1)/2] : (sorted[n/2-1]+sorted[n/2])/2;
-    document.getElementById("corrMean").textContent=mean.toFixed(2);
-    document.getElementById("corrMedian").textContent=median.toFixed(2);
   }
 
   async function fetchResults(){
@@ -1179,9 +1166,6 @@ function setupCanvas(cv, cssH){
   revealBtn.addEventListener("click", ()=>{
     if(guesses.length===0) return;
     revealed=true;
-    const n=guesses.length, mean=guesses.reduce((a,b)=>a+b,0)/n;
-    const crowdErr = Math.abs(mean-realR);
-    document.getElementById("corrCrowdErr").textContent = crowdErr.toFixed(3);
     document.getElementById("corrRealR").textContent = realR.toFixed(2);
     compareBox.classList.add("show");
 
