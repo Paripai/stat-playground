@@ -1003,16 +1003,23 @@ function setupCanvas(cv, cssH){
   /* ============================================================================ */
   const COOLDOWN_MS = 10*60*1000;
   const GAME = "corr";
+  const TARGET_R = 0.6, N_POINTS = 80;
 
-  /* ----- สร้างจุดกระจายแบบ "สุ่มแต่คงที่" ด้วย seed ตายตัว ทุกคนที่เปิดเว็บจะเห็นจุดชุดเดียวกันเป๊ะ ----- */
+  /* ----- สร้างจุดกระจายจาก "เลขรอบ" ที่เซิร์ฟเวอร์บอกมา — ทุกคนที่เปิดเว็บในรอบเดียวกันจะเห็นจุดชุดเดียวกันเป๊ะ
+     พอกดปุ่ม "ล้างข้อมูลทั้งหมด" เลขรอบจะเปลี่ยน → จุดชุดใหม่จะถูกสร้างและซิงค์ให้ทุกเครื่องอัตโนมัติ ----- */
   function mulberry32(seed){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
-  const SEED=42, TARGET_R=0.6, N_POINTS=80;
-  const rng=mulberry32(SEED);
-  function gauss(){ let u=0,v=0; while(u===0)u=rng(); while(v===0)v=rng(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+  function hashStr(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return h>>>0; }
   function pearson(a){ const n=a.length; let mx=0,my=0; a.forEach(p=>{mx+=p.x;my+=p.y;}); mx/=n;my/=n; let sxy=0,sx=0,sy=0; a.forEach(p=>{const dx=p.x-mx,dy=p.y-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}); return sxy/Math.sqrt(sx*sy); }
-  const raw=[]; for(let i=0;i<N_POINTS;i++){ const x=gauss(), y=TARGET_R*x+Math.sqrt(Math.max(0,1-TARGET_R*TARGET_R))*gauss(); raw.push({x,y}); }
-  const realR = pearson(raw);
-  const minx=Math.min(...raw.map(p=>p.x)), maxx=Math.max(...raw.map(p=>p.x)), miny=Math.min(...raw.map(p=>p.y)), maxy=Math.max(...raw.map(p=>p.y));
+
+  let raw=[], realR=0, minx,maxx,miny,maxy;
+  function generateDataset(seedStr){
+    const rng=mulberry32(hashStr(seedStr));
+    function gauss(){ let u=0,v=0; while(u===0)u=rng(); while(v===0)v=rng(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+    raw=[]; for(let i=0;i<N_POINTS;i++){ const x=gauss(), y=TARGET_R*x+Math.sqrt(Math.max(0,1-TARGET_R*TARGET_R))*gauss(); raw.push({x,y}); }
+    realR=pearson(raw);
+    minx=Math.min(...raw.map(p=>p.x)); maxx=Math.max(...raw.map(p=>p.x));
+    miny=Math.min(...raw.map(p=>p.y)); maxy=Math.max(...raw.map(p=>p.y));
+  }
 
   const cv=document.getElementById("scatter"), slider=document.getElementById("corSlider"), gv=document.getElementById("corGuessVal");
   let ctx,W,H,pts=[], revealed=false;
@@ -1025,8 +1032,6 @@ function setupCanvas(cv, cssH){
     if(revealed){ const n=pts.length; let mx=0,my=0; pts.forEach(p=>{mx+=p.x;my+=p.y;});mx/=n;my/=n; let sxy=0,sx=0; pts.forEach(p=>{sxy+=(p.x-mx)*(p.y-my);sx+=(p.x-mx)**2;}); const b=sxy/sx,a=my-b*mx; ctx.strokeStyle=C.trend;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(28,a+b*28);ctx.lineTo(W-14,a+b*(W-14));ctx.stroke(); }
   }
   slider.oninput=()=>{gv.textContent=(+slider.value).toFixed(2);};
-  layoutScatter(); drawScatter();
-  new ResizeObserver(()=>{layoutScatter();drawScatter();}).observe(cv);
 
   /* ----- ส่วน live submit / results / admin (โครงเดียวกับฐาน 05) ----- */
   const form=document.getElementById("corrForm"), nameI=document.getElementById("corrName");
@@ -1051,13 +1056,21 @@ function setupCanvas(cv, cssH){
     resultsCard.classList.remove("hidden");
     pollControl();
   }
+
+  /* เลขรอบเปลี่ยน (มีคนกดล้างข้อมูล) → สร้างจุดชุดใหม่ + เคลียร์ผลเก่า + ปลดล็อกให้ตอบใหม่ได้ทันที */
   function checkRoundReset(round){
-    if(isAdminView || round==null) return;
-    const lastRound = safeGet("corrSubmittedRound");
-    if(lastRound!=null && round!==lastRound && cooldownTimer){
+    if(round==null || round===currentRound) return;
+    currentRound = round;
+    generateDataset(GAME+"-"+round);
+    layoutScatter(); drawScatter();
+    revealed=false; entries=[]; guesses=[];
+    compareBox.classList.remove("show");
+    top3Box.classList.add("hidden");
+    if(hctx) drawHist();
+    if(!isAdminView && cooldownTimer){
       clearTimeout(cooldownTimer); cooldownTimer=null;
       submitBtn.disabled=false;
-      msg.className="woc-msg ok"; msg.textContent="เริ่มรอบใหม่แล้ว ตอบได้อีกครั้ง ✅";
+      msg.className="woc-msg ok"; msg.textContent="เริ่มรอบใหม่แล้ว มีจุดชุดใหม่ให้ทาย ✅";
     }
   }
   function startCooldown(untilTs){
@@ -1065,27 +1078,6 @@ function setupCanvas(cv, cssH){
     if(cooldownTimer) clearTimeout(cooldownTimer);
     const remain=Math.max(0, untilTs-Date.now());
     cooldownTimer=setTimeout(()=>{ cooldownTimer=null; submitBtn.disabled=false; msg.className="woc-msg ok"; msg.textContent="ตอบได้อีกครั้งแล้ว ✅"; }, remain);
-  }
-
-  if(isAdminView){
-    adminBox.classList.remove("hidden");
-    toggleViewBtn.classList.remove("hidden");
-    showResultsUI(); fetchResults();
-  } else {
-    const lastTs = Number(safeGet("corrSubmittedAt"));
-    if(Number.isFinite(lastTs) && lastTs>0){
-      showResultsUI();
-      fetchResults().then(round=>{
-        const lastRound = safeGet("corrSubmittedRound");
-        const roundChanged = (round!=null) && (lastRound!=null) && (round!==lastRound);
-        if(!roundChanged){
-          const until = lastTs + COOLDOWN_MS;
-          if(Date.now() < until) startCooldown(until);
-        } else {
-          msg.className="woc-msg ok"; msg.textContent="เริ่มรอบใหม่แล้ว ตอบได้อีกครั้ง ✅";
-        }
-      });
-    }
   }
 
   toggleViewBtn.addEventListener("click", ()=>{
@@ -1130,12 +1122,11 @@ function setupCanvas(cv, cssH){
       let round=null, rows=[];
       if(Array.isArray(data)){ rows=data; }
       else if(data && Array.isArray(data.entries)){ rows=data.entries; round=(data.round!=null)?String(data.round):null; }
-      currentRound=round;
       entries = rows.map(r=>({name:(r.name||"").toString(), guess:Number(r.guess)})).filter(e=>Number.isFinite(e.guess)&&e.guess>=-1&&e.guess<=1);
       guesses = entries.map(e=>e.guess);
       dot.classList.add("on");
-      drawHist(); statsBox();
       checkRoundReset(round);
+      drawHist(); statsBox();
       return round;
     }catch(err){ dot.classList.remove("on"); return null; }
   }
@@ -1176,16 +1167,12 @@ function setupCanvas(cv, cssH){
   });
 
   clearBtn.addEventListener("click", async ()=>{
-    if(!confirm("ล้างคำตอบทั้งหมดใน Google Sheet ตอนนี้เลยไหม? กู้คืนไม่ได้นะ")) return;
+    if(!confirm("ล้างคำตอบทั้งหมด + สร้างจุดชุดใหม่เลยไหม? กู้คืนไม่ได้นะ")) return;
     clearBtn.disabled=true; const origTxt=clearBtn.textContent; clearBtn.textContent="กำลังล้าง...";
     try{
       await fetch(API_URL, { method:"POST", body: JSON.stringify({ action:"clear", secret: CLEAR_SECRET, game: GAME }) });
-      revealed=false; entries=[]; guesses=[];
-      compareBox.classList.remove("show");
-      top3Box.classList.add("hidden");
-      await fetchResults();
-      drawScatter();
-      clearBtn.textContent="ล้างข้อมูลแล้ว ✅";
+      await fetchResults(); // เลขรอบใหม่จาก server จะทำให้ checkRoundReset สร้างจุดชุดใหม่ + เคลียร์หน้าจอให้เอง
+      clearBtn.textContent="ล้างข้อมูลแล้ว ✅ มีจุดชุดใหม่";
     }catch(err){
       clearBtn.textContent="ล้างไม่สำเร็จ ลองใหม่";
     }finally{
@@ -1200,8 +1187,42 @@ function setupCanvas(cv, cssH){
   }
   window.addEventListener("relayout", ()=>{ layoutScatter(); drawScatter(); layoutHist(); drawHist(); pollControl(); if(unlocked && document.getElementById("s4").classList.contains("active")) fetchResults(); });
 
-  layoutHist(); drawHist();
-  if(hcv) new ResizeObserver(()=>{layoutHist();drawHist();}).observe(hcv);
+  /* ----- เริ่มต้น: ดึงเลขรอบปัจจุบันมาก่อน เพื่อสร้างจุดกระจายให้ตรงกันทุกเครื่องตั้งแต่เปิดหน้าเว็บ ----- */
+  async function init(){
+    let initialRound = "0";
+    try{
+      const res = await fetch(API_URL+"?game="+GAME, {method:"GET"});
+      const data = await res.json();
+      if(data && data.round!=null) initialRound = String(data.round);
+    }catch(err){}
+    currentRound = initialRound;
+    generateDataset(GAME+"-"+initialRound);
+    layoutScatter(); drawScatter();
+    new ResizeObserver(()=>{layoutScatter();drawScatter();}).observe(cv);
+    layoutHist(); drawHist();
+    if(hcv) new ResizeObserver(()=>{layoutHist();drawHist();}).observe(hcv);
+
+    if(isAdminView){
+      adminBox.classList.remove("hidden");
+      toggleViewBtn.classList.remove("hidden");
+      showResultsUI(); fetchResults();
+    } else {
+      const lastTs = Number(safeGet("corrSubmittedAt"));
+      if(Number.isFinite(lastTs) && lastTs>0){
+        showResultsUI();
+        const round = await fetchResults();
+        const lastRound = safeGet("corrSubmittedRound");
+        const roundChanged = (round!=null) && (lastRound!=null) && (round!==lastRound);
+        if(!roundChanged){
+          const until = lastTs + COOLDOWN_MS;
+          if(Date.now() < until) startCooldown(until);
+        } else {
+          msg.className="woc-msg ok"; msg.textContent="เริ่มรอบใหม่แล้ว มีจุดชุดใหม่ให้ทาย ✅";
+        }
+      }
+    }
+  }
+  init();
 })();
 
 /* ================= STATION 5: WISDOM OF CROWDS (live, Google Sheets) ================= */
